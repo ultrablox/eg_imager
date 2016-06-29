@@ -50,6 +50,7 @@ struct large_with_logo : public img_processor_base
 			painter.setBrush(QBrush(QColor(255, 255, 255, 255)));
 			painter.setPen(Qt::PenStyle::NoPen);
 			painter.drawRect(QRect(0, 0, dest.width(), dest.height()));
+			//auto pix = QPixmap::fromImage(dest);
 		}
 
 		center_draw(dest, src_img);
@@ -59,6 +60,52 @@ struct large_with_logo : public img_processor_base
 	}
 };
 
+
+QImage smooth_resize_low(const QImage & src, const QSize & sz)
+{
+	float h_k = (float)sz.width() / src.width(),
+		v_k = (float)sz.height() / src.height();
+
+	float scale_k = std::min(v_k, h_k);
+
+	float w = src.width() * scale_k,
+		h = src.height() * scale_k;
+	QSize final_sz(w, h);
+
+	std::vector<QSize> resize_path;
+
+	
+	auto cur_sz = final_sz;
+	while (cur_sz.width() < src.width())
+	{
+		resize_path.push_back(cur_sz);
+		cur_sz *= 2;
+	}
+
+	QImage cur_img = src;
+
+	for (auto it = resize_path.rbegin(); it != resize_path.rend(); ++it)
+	{
+		QImage new_img(*it, QImage::Format::Format_RGB32);
+
+		QPainter painter(&new_img);
+		painter.setRenderHint(QPainter::Antialiasing, true);
+		painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
+		painter.setRenderHint(QPainter::HighQualityAntialiasing, true);
+		
+
+		painter.setBrush(QBrush(QColor(255, 255, 255, 255)));
+		painter.setPen(Qt::PenStyle::NoPen);
+		painter.drawRect(QRect(0, 0, new_img.width(), new_img.height()));
+
+		painter.drawImage(QRectF(0, 0, new_img.width(), new_img.height()), cur_img);
+
+		cur_img = new_img;
+	}
+	
+	return cur_img;
+}
+
 struct small_nologo : public img_processor_base
 {
 	small_nologo(QImage * wpix)
@@ -67,6 +114,7 @@ struct small_nologo : public img_processor_base
 
 	void execute(QImage & dest, const QImage & src_img, const QString & base_name)
 	{
+		QImage lowered_dest = smooth_resize_low(src_img, QSize(150, 135));
 		dest = QImage(150, 135, QImage::Format::Format_RGB32);
 
 		{
@@ -76,7 +124,7 @@ struct small_nologo : public img_processor_base
 			painter.drawRect(QRect(0, 0, dest.width(), dest.height()));
 		}
 
-		center_draw(dest, src_img);
+		center_draw(dest, lowered_dest);
 		dest.save(outDir + "/" + base_name + "S" + ".png", "PNG");
 	}
 };
@@ -91,11 +139,11 @@ int main(int argc, char *argv[])
 
 
 	QImage img_logo("watermark.png"),
-			img_src(src_name);
+		img_src(src_name);
 
 	//1
 	img_src.save("Nologo Origin/" + fi.baseName() + "L" + ".png", "PNG");
-	
+
 	//2
 	QImage with_logo;
 	auto large_logo = new large_with_logo(&img_logo);
@@ -103,20 +151,15 @@ int main(int argc, char *argv[])
 
 	//3
 	{
-		QImage dest_small(300, 270, QImage::Format::Format_RGB32);
-
-		QPainter painter(&dest_small);
-		painter.setRenderHint(QPainter::Antialiasing, true);
-		painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
-		
-		painter.setBrush(QBrush(QColor(255, 255, 255, 255)));
-		painter.setPen(Qt::PenStyle::NoPen);
-		painter.drawRect(QRect(0, 0, dest_small.width(), dest_small.height()));
-
-		painter.drawImage(QRectF(0, 0, dest_small.width(), dest_small.height()), with_logo);
-
-
+		auto dest_small = smooth_resize_low(with_logo, QSize(300, 270));
 		dest_small.save("300x270 M/" + fi.baseName() + "M" + ".png", "PNG");
+	}
+
+	//4
+	{
+		auto catalog = smooth_resize_low(img_src, QSize(354, 1000));
+		QString base_fname = "jpg_as_bmp/" + fi.baseName();
+		catalog.save(base_fname + ".jpg", "BMP");
 	}
 
 	auto small_nlogo = new small_nologo(&img_logo);
